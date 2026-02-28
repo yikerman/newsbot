@@ -21,7 +21,8 @@ def send_email(subject: str, body: str) -> None:
 
     msg = MIMEMultipart()
     msg["From"] = mail_from
-    msg["To"] = ", ".join(recipients)
+    msg["To"] = "undisclosed-recipients:;"
+    msg["Bcc"] = ", ".join(recipients)
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
