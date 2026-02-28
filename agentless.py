@@ -143,12 +143,13 @@ def main():
     today = datetime.now().strftime("%Y-%m-%d")
     output_file = f"news_{today}.txt"
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write(f"新闻摘要 - {today}\n")
-        f.write("=" * 40 + "\n\n")
-        f.write(("\n\n" + "-" * 40 + "\n\n").join(summaries))
-        f.write("\n")
+        content = f"新闻摘要 - {today}\n"
+        content += "=" * 40 + "\n\n"
+        content += ("\n\n" + "-" * 40 + "\n\n").join(summaries)
+        content += "\n"
+        f.write(content)
     print(f"[debug] Summarization complete. Output written to {output_file}")
-
+    return output_file, content
 
 if __name__ == "__main__":
     main()
