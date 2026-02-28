@@ -23,7 +23,7 @@ NEWS_FETCHER_INITIAL_PROMPT = """# 身份: 新闻内容获取机器人
 你将收到一段转换为 Markdown 格式的网页内容。
 
 ## 输出格式 (极其重要):
-你的输出必须是**纯 JSON 数组**格式。
+你的输出必须是**纯 JSON 数组**格式，每一行为一个绝对（包含协议和域名）的新闻 URL 字符串。例如：
 
 [
     "https://example.com/news1",
@@ -53,9 +53,8 @@ NEWS_AGENT_INITIAL_PROMPT = """# 身份: 资深客观新闻聚合/编辑机器�
 ## 输出格式:
 请严格按照以下纯文本模板输出总结：
 
-来源: [新闻媒体名称] ([原始网页URL])
-重要程度: [1-5数字]
 标题: [生成一个精炼、客观、直白的新闻标题]
+重要程度: [1-5数字]
 
 摘要: 
 [用 150-200 字精炼概括这篇新闻的核心事件（新闻六要素Who What When Where Why How）]
@@ -89,7 +88,6 @@ def call_llm(messages, **kwargs):
         model=os.getenv("MODEL", "gpt-5.2"),
         messages=messages,
         temperature=0,
-        reasoning_effort="low",
         **kwargs,
     )
     return response
@@ -154,6 +152,7 @@ def main():
             try:
                 summary = future.result()
                 if summary:
+                    summary = f"来源: {url}\n\n{summary}"
                     summaries.append(summary)
             except Exception as e:
                 print(f"[error] Failed to process {url}: {e}")
