@@ -103,7 +103,7 @@ def extract_news_urls(markdown_content: str) -> Iterable[str]:
         {"role": "system", "content": NEWS_FETCHER_INITIAL_PROMPT},
         {"role": "user", "content": markdown_content},
     ]
-    response = call_llm(messages, response_format={"type": "json_object"})
+    response = call_llm(messages, response_format={"type": "json_object"}, extra_body={"thinking_budget": 6144})
     try:
         news_urls = json.loads(response.choices[0].message.content)  # type: ignore
         if isinstance(news_urls, list):
