@@ -39,7 +39,7 @@ NEWS_AGENT_INITIAL_PROMPT = """# 身份: 资深客观新闻聚合/编辑机器�
 ## 输出格式:
 请严格按照以下结构输出你的总结：
 
-**来源**: [新闻来源，如CNN、BBC等，附上链接]
+**来源**: [新闻来源，如CNN、BBC] [网页URL]
 **标题**：[生成一个精炼的客观标题]
 **核心摘要**：[用一两句话（50字以内）概括这篇新闻最重要的事情]
 **关键要点**：
@@ -58,35 +58,44 @@ def get_webpage_markdown(url: str) -> str:
     markdown_content = markdownify.markdownify(html_content, heading_style="ATX")
     return markdown_content
 
-def call_llm(instructions: str, input: str):
+def call_llm(messages, **kwargs):
     client = openai.OpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
         base_url=os.getenv("OPENAI_BASE_URL"),
     )
-    response = client.responses.create(
+    response = client.chat.completions.create(
         model=os.getenv("MODEL", "gpt-5.2"),
-        instructions=instructions,
-        input=input,
-        temperature=0.2,
+        messages=messages,
+        temperature=0,
+        reasoning_effort="low",
+        **kwargs
     )
     return response
 
 
 
 def extract_news_urls(markdown_content: str) -> Iterable[str]:
-    response = call_llm(NEWS_FETCHER_INITIAL_PROMPT, markdown_content)
+    messages = [
+        {"role": "system", "content": NEWS_FETCHER_INITIAL_PROMPT},
+        {"role": "user", "content": markdown_content},
+    ]
+    response = call_llm(messages, response_format={"type": "json_object"})
     try:
-        news_urls = json.loads(response.output_text)
+        news_urls = json.loads(response.choices[0].message.content) # type: ignore
         if isinstance(news_urls, list):
             return news_urls
         else:
-            raise ValueError(f"LLM response is not a list: {response.output_text}")
+            raise ValueError(f"LLM response is not a list: {response.choices[0].message.content}") # type: ignore
     except json.JSONDecodeError:
-        raise ValueError(f"LLM response is not valid JSON: {response.output_text}")
+        raise ValueError(f"LLM response is not valid JSON: {response.choices[0].message.content}") # type: ignore
 
 def summarize_news(markdown_content: str) -> str:
-    response = call_llm(NEWS_AGENT_INITIAL_PROMPT, markdown_content)
-    return response.output_text
+    messages = [
+        {"role": "system", "content": NEWS_AGENT_INITIAL_PROMPT},
+        {"role": "user", "content": markdown_content},
+    ]
+    response = call_llm(messages)
+    return response.choices[0].message.content # type: ignore
 
 def main():
     load_dotenv()
