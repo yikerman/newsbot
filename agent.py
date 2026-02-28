@@ -1,4 +1,5 @@
 # Context爆炸，没法用
+raise NotImplementedError("Context爆炸，没法用")
 
 import os
 import json
