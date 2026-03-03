@@ -136,9 +136,9 @@ def is_today_news(markdown_content: str) -> bool:
 def process_news_url(url: str) -> str | None:
     """Fetch, filter, and summarize a single news URL. Returns summary or None."""
     news_markdown = get_webpage_markdown(url)
-    if not is_today_news(news_markdown):
-        print(f"[debug] Skipping non-today news: {url}")
-        return None
+    # if not is_today_news(news_markdown):
+    #     print(f"[debug] Skipping non-today news: {url}")
+    #     return None
     time.sleep(random.uniform(0.5, 2))  # 避免限流
     return summarize_news(news_markdown)
 
