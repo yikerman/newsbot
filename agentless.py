@@ -1,14 +1,22 @@
+import logging
 import os
 import json
 import random
 import time
-from typing import Iterable
+from typing import Iterable, List
 from datetime import datetime
 
 import curl_cffi
 import markdownify
 import openai
 from dotenv import load_dotenv
+
+# 配置日志
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 
 NEWS_FETCHER_INITIAL_PROMPT = """# 身份: 新闻内容获取机器人
 
@@ -75,7 +83,7 @@ AI点评:
 """
 
 def get_webpage_markdown(url: str) -> str:
-    print(f"[debug] get_webpage_markdown({url})")
+    logger.debug(f"Fetching webpage: {url}")
     response = curl_cffi.get(url, impersonate="chrome")
     if response.status_code != 200:
         return f"Error fetching webpage: {response.status_code}"
@@ -98,7 +106,8 @@ def call_llm(messages, **kwargs):
     return response
 
 
-def extract_news_urls(markdown_content: str) -> Iterable[str]:
+def extract_news_urls(markdown_content: str) -> List[str]:
+    logger.debug("Extracting news URLs from markdown content")
     messages = [
         {"role": "system", "content": NEWS_FETCHER_INITIAL_PROMPT},
         {"role": "user", "content": markdown_content},
@@ -107,10 +116,12 @@ def extract_news_urls(markdown_content: str) -> Iterable[str]:
     try:
         news_urls = json.loads(response.choices[0].message.content)  # type: ignore
         if isinstance(news_urls, list):
+            logger.info(f"Extracted {len(news_urls)} news URLs")
             return news_urls
         else:
             raise ValueError(f"LLM response is not a list: {response.choices[0].message.content}")  # type: ignore
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse LLM response as JSON: {e}")
         raise ValueError(f"LLM response is not valid JSON: {response.choices[0].message.content}")  # type: ignore
 
 
@@ -135,11 +146,14 @@ def is_today_news(markdown_content: str) -> bool:
 
 def process_news_url(url: str) -> str | None:
     """Fetch, filter, and summarize a single news URL. Returns summary or None."""
+    logger.debug(f"Processing news URL: {url}")
     news_markdown = get_webpage_markdown(url)
     # if not is_today_news(news_markdown):
-    #     print(f"[debug] Skipping non-today news: {url}")
+    #     logger.debug(f"Skipping non-today news: {url}")
     #     return None
-    time.sleep(random.uniform(0.5, 2))  # 避免限流
+    delay = random.uniform(0.5, 2)
+    logger.debug(f"Waiting {delay:.2f}s to avoid rate limiting")
+    time.sleep(delay)
     return summarize_news(news_markdown)
 
 
@@ -149,16 +163,18 @@ def main():
     # HOMEPAGE = "https://www.reuters.com/"
     homepage_markdown = get_webpage_markdown(HOMEPAGE)
     news_urls = extract_news_urls(homepage_markdown)
-    print(f"[debug] Extracted news URLs: {news_urls}")
+    
     summaries: list[str] = []
-    for url in news_urls:
+    for i, url in enumerate(news_urls, 1):
         try:
+            logger.info(f"[{i}/{len(news_urls)}] Processing: {url}")
             summary = process_news_url(url)
             if summary:
-                summary = f"来源: {url}\n\n{summary}"
+                summary = f"来源：{url}\n\n{summary}"
                 summaries.append(summary)
+                logger.info(f"Successfully summarized: {url}")
         except Exception as e:
-            print(f"[error] Failed to process {url}: {e}")
+            logger.error(f"Failed to process {url}: {e}")
 
     today = datetime.now().strftime("%Y-%m-%d")
     output_file = f"news_{today}.txt"
@@ -168,7 +184,9 @@ def main():
         content += ("\n\n" + "-" * 40 + "\n\n").join(summaries)
         content += "\n"
         f.write(content)
-    print(f"[debug] Summarization complete. Output written to {output_file}")
+    
+    logger.info(f"Summarization complete. Processed {len(summaries)}/{len(news_urls)} articles.")
+    logger.info(f"Output written to {output_file}")
     return output_file, content
 
 if __name__ == "__main__":
