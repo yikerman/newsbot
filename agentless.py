@@ -60,23 +60,24 @@ NEWS_AGENT_INITIAL_PROMPT = """# 身份: 资深客观新闻聚合/编辑机器�
 ## 输入格式:
 一段转换为 Markdown 格式的单篇新闻网页内容（包含来源 URL 和正文）。
 
-## 输出格式:
-请严格按照以下纯文本模板输出总结：
+## 输出格式 (严格遵守 Markdown 语法):
+请严格按照以下 Markdown 模板输出总结，不要额外添加代码块包裹（如 ```markdown）：
 
-标题: [生成一个精炼、客观、直白的新闻标题]
-重要程度: [1-5数字]
+## [生成一个精炼、客观、直白的新闻标题]
 
-摘要: 
+**重要程度**: [1-5数字] / 5
+
+### 摘要
+
 [用 150-200 字精炼概括这篇新闻的核心事件（新闻六要素Who What When Where Why How）]
 
-要点:
--> [子标题 1]：[具体细节、数据或重要决定，100 字左右]
+### 要点
 
--> [子标题 2]：[各方回应、动机或背景，100 字左右]
+- **[子标题 1]**：[具体细节、数据或重要决定，100 字左右]
+- **[子标题 2]**：[各方回应、动机或背景，100 字左右]
+- **[子标题 3]**：[后续影响或未来规划，100 字左右]
 
--> [子标题 3]：[后续影响或未来规划，100 字左右]
-
-(....可按需增添要点，要点间空一行)
+（可按需增添更多要点）
 """
 
 def get_webpage_markdown(url: str) -> str:
@@ -167,19 +168,18 @@ def main():
             logger.info(f"[{i}/{len(news_urls)}] Processing: {url}")
             summary = process_news_url(url)
             if summary:
-                summary = f"来源：{url}\n\n{summary}"
+                summary = f"{summary.strip()}\n\n*[来源]({url})*"
                 summaries.append(summary)
                 logger.info(f"Successfully summarized: {url}")
         except Exception as e:
             logger.error(f"Failed to process {url}: {e}")
 
     today = datetime.now().strftime("%Y-%m-%d")
-    output_file = f"news_{today}.txt"
+    output_file = f"news_{today}.md"
+    content = f"# 新闻摘要 - {today}\n\n"
+    content += "\n\n---\n\n".join(summaries)
+    content += "\n"
     with open(output_file, "w", encoding="utf-8") as f:
-        content = f"新闻摘要 - {today}\n"
-        content += "=" * 40 + "\n\n"
-        content += ("\n\n" + "-" * 40 + "\n\n").join(summaries)
-        content += "\n"
         f.write(content)
     
     logger.info(f"Summarization complete. Processed {len(summaries)}/{len(news_urls)} articles.")
