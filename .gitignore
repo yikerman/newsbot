@@ -218,3 +218,4 @@ __marimo__/
 # Custom
 /.env
 /news_*.txt
+/news_*.md

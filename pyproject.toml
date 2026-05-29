@@ -4,6 +4,7 @@ version = "0.0.0"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "beautifulsoup4>=4.14.0",
     "curl-cffi>=0.14.0",
     "markdown>=3.10.2",
     "markdownify>=1.2.2",
@@ -14,4 +15,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "black>=26.1.0",
+    "pyright>=1.1.409",
+    "ruff>=0.15.15",
 ]

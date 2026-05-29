@@ -3,13 +3,15 @@ import os
 import json
 import random
 import time
-from typing import Iterable, List
+from typing import List
 from datetime import datetime
 
 import curl_cffi
 import markdownify
 import openai
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from urllib.parse import urljoin, urlparse
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -20,17 +22,22 @@ logging.basicConfig(
 
 NEWS_FETCHER_INITIAL_PROMPT = """# 身份: 新闻内容获取机器人
 
-你是一个专业、高效的网页数据提取机器人。你的唯一任务是分析用户提供的网页 Markdown 内容，并从中提取最重要的 5-12 条**正文新闻**的 URL 链接。
+你是一个专业、高效的网页数据提取机器人。你的唯一任务是分析用户提供的新闻网站首页链接列表，并从中提取最重要的 5-12 条**正文新闻**的 URL 链接。
 
 ## 提取规则 (严格遵守):
-1. **链接筛选**：只提取真正的新闻报道链接。坚决排除：导航栏、"关于我们"、"联系方式"、"登录/注册"、广告链接、社交媒体分享链接等。
-2. **重要性判定**：优先提取位于页面核心区域、带有完整标题或摘要的头条/主打新闻链接。
-3. **有效性检查**：确保提取的 URL 格式完整。如果遇到相对路径（如 `/article/123`），请转换为绝对 URL。
-4. **数量限制**：最少 5 条，最多 12 条。如果页面中有效新闻不足 5 条，有多少提取多少。
-5. **内容多样化**：尽量提取涵盖不同事件的链接，而不是集中在同一事件上。若同一事件有多个报道，只保留最具代表性的一个链接。
+1. **链接筛选**：只提取真正的新闻报道链接。坚决排除：导航栏、栏目首页、"关于我们"、"联系方式"、"登录/注册"、广告链接、社交媒体分享链接、播客/视频/通讯订阅栏目首页等。
+2. **重要性判定**：根据链接文本判断新闻的重要性，优先选择文本看起来像完整新闻标题（包含具体事件、人物、地点等要素）的链接。
+3. **数量限制**：最少 5 条，最多 12 条。如果有效新闻不足 5 条，有多少提取多少。
+4. **内容多样化**：尽量提取涵盖不同事件的链接，而不是集中在同一事件上。若同一事件有多个报道，只保留最具代表性的一两个链接。
 
 ## 输入格式:
-你将收到一段转换为 Markdown 格式的网页内容。
+你将收到一个链接列表，每行格式为：
+
+```
+<链接文本> | <绝对 URL>
+```
+
+URL 已经是绝对路径，无需再做转换。
 
 ## 输出格式 (极其重要):
 你的输出必须是**纯 JSON 数组**格式，每一行为一个绝对（包含协议和域名）的新闻 URL 字符串。例如：
@@ -80,6 +87,55 @@ NEWS_AGENT_INITIAL_PROMPT = """# 身份: 资深客观新闻聚合/编辑机器�
 （可按需增添更多要点）
 """
 
+NOISE_PATH_PREFIXES = (
+    "/about",
+    "/contact",
+    "/career",
+    "/careers",
+    "/terms",
+    "/privacy",
+    "/cookie",
+    "/accessibility",
+    "/help",
+    "/faq",
+    "/login",
+    "/signin",
+    "/signup",
+    "/subscribe",
+    "/newsletter",
+    "/tag/",
+    "/author/",
+    "/topic/",
+    "/section/",
+)
+
+
+def extract_homepage_anchors(url: str) -> str:
+    """Fetch a news homepage and return a compact `text | absolute_url` list of
+    candidate article anchors. Site-agnostic — uses generic filters only.
+    """
+    logger.debug(f"Fetching homepage anchors: {url}")
+    response = curl_cffi.get(url, impersonate="chrome")
+    if response.status_code != 200:
+        return f"Error fetching webpage: {response.status_code}"
+    soup = BeautifulSoup(response.text, "html.parser")
+    host = urlparse(url).netloc
+    lines: list[str] = []
+    for a in soup.find_all("a", href=True):
+        href = urljoin(url, a["href"])  # type: ignore[arg-type]
+        parsed = urlparse(href)
+        if parsed.scheme not in ("http", "https"):
+            continue
+        if parsed.netloc != host:
+            continue
+        if any(parsed.path.startswith(p) for p in NOISE_PATH_PREFIXES):
+            continue
+        text = " ".join(a.get_text(" ", strip=True).split())
+        lines.append(f"{text} | {href}")
+    logger.info(f"Extracted {len(lines)} candidate anchors from {url}")
+    return "\n".join(lines)
+
+
 def get_webpage_markdown(url: str) -> str:
     logger.debug(f"Fetching webpage: {url}")
     response = curl_cffi.get(url, impersonate="chrome")
@@ -104,23 +160,31 @@ def call_llm(messages, **kwargs):
     return response
 
 
-def extract_news_urls(markdown_content: str) -> List[str]:
-    logger.debug("Extracting news URLs from markdown content")
+def extract_news_urls(anchor_list: str) -> List[str]:
+    logger.debug("Extracting news URLs from anchor list")
     messages = [
         {"role": "system", "content": NEWS_FETCHER_INITIAL_PROMPT},
-        {"role": "user", "content": markdown_content},
+        {"role": "user", "content": anchor_list},
     ]
-    response = call_llm(messages, response_format={"type": "json_object"}, extra_body={"thinking_budget": 6144})
+    response = call_llm(
+        messages,
+        response_format={"type": "json_object"},
+        extra_body={"thinking_budget": 6144},
+    )
     try:
         news_urls = json.loads(response.choices[0].message.content)  # type: ignore
         if isinstance(news_urls, list):
             logger.info(f"Extracted {len(news_urls)} news URLs")
             return news_urls
         else:
-            raise ValueError(f"LLM response is not a list: {response.choices[0].message.content}")  # type: ignore
+            raise ValueError(
+                f"LLM response is not a list: {response.choices[0].message.content}"
+            )  # type: ignore
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse LLM response as JSON: {e}")
-        raise ValueError(f"LLM response is not valid JSON: {response.choices[0].message.content}")  # type: ignore
+        raise ValueError(
+            f"LLM response is not valid JSON: {response.choices[0].message.content}"
+        )  # type: ignore
 
 
 def summarize_news(markdown_content: str) -> str:
@@ -159,9 +223,9 @@ def main():
     load_dotenv()
     HOMEPAGE = "https://apnews.com/"
     # HOMEPAGE = "https://www.reuters.com/"
-    homepage_markdown = get_webpage_markdown(HOMEPAGE)
-    news_urls = extract_news_urls(homepage_markdown)
-    
+    homepage_anchors = extract_homepage_anchors(HOMEPAGE)
+    news_urls = extract_news_urls(homepage_anchors)
+
     summaries: list[str] = []
     for i, url in enumerate(news_urls, 1):
         try:
@@ -181,10 +245,13 @@ def main():
     content += "\n"
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(content)
-    
-    logger.info(f"Summarization complete. Processed {len(summaries)}/{len(news_urls)} articles.")
+
+    logger.info(
+        f"Summarization complete. Processed {len(summaries)}/{len(news_urls)} articles."
+    )
     logger.info(f"Output written to {output_file}")
     return output_file, content
+
 
 if __name__ == "__main__":
     main()
